@@ -17,7 +17,11 @@ resource "aws_s3_bucket_public_access_block" "this" {
 }
 resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
   bucket = aws_s3_bucket.this.id
-  rule { apply_server_side_encryption_by_default { sse_algorithm = "AES256" } }
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
 }
 resource "aws_s3_bucket_lifecycle_configuration" "this" {
   bucket = aws_s3_bucket.this.id
@@ -48,6 +52,6 @@ resource "aws_iam_policy" "readwrite" {
   name   = "${var.name}-readwrite"
   policy = data.aws_iam_policy_document.readwrite.json
 }
-output "bucket"             { value = aws_s3_bucket.this.bucket }
-output "read_policy_arn"    { value = aws_iam_policy.read.arn }
+output "bucket" { value = aws_s3_bucket.this.bucket }
+output "read_policy_arn" { value = aws_iam_policy.read.arn }
 output "readwrite_policy_arn" { value = aws_iam_policy.readwrite.arn }

@@ -16,9 +16,9 @@ module "vpc" {
   private_subnets = ["10.42.0.0/19", "10.42.32.0/19"]
   public_subnets  = ["10.42.64.0/22", "10.42.68.0/22"]
 
-  enable_nat_gateway     = true
-  single_nat_gateway     = true      # one NAT: cheaper, and this cluster is not HA by design
-  enable_dns_hostnames   = true
+  enable_nat_gateway   = true
+  single_nat_gateway   = true # one NAT: cheaper, and this cluster is not HA by design
+  enable_dns_hostnames = true
 
   # Karpenter discovers subnets by this tag; the LB controller uses the role tags.
   private_subnet_tags = { "karpenter.sh/discovery" = var.cluster_name, "kubernetes.io/role/internal-elb" = 1 }
@@ -38,7 +38,7 @@ module "eks" {
   cluster_name    = var.cluster_name
   cluster_version = var.k8s_version
 
-  cluster_endpoint_public_access = true    # kubectl from the laptop; API is still authenticated. Restrict with cluster_endpoint_public_access_cidrs if wanted.
+  cluster_endpoint_public_access           = true # kubectl from the laptop; API is still authenticated. Restrict with cluster_endpoint_public_access_cidrs if wanted.
   enable_cluster_creator_admin_permissions = true
 
   vpc_id                   = module.vpc.vpc_id
@@ -70,8 +70,8 @@ module "eks" {
 }
 
 module "ebs_csi_role" {
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-  version = "~> 5.44"
+  source                = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+  version               = "~> 5.44"
   role_name             = "${var.cluster_name}-ebs-csi"
   attach_ebs_csi_policy = true
   oidc_providers = {
@@ -84,9 +84,9 @@ module "karpenter" {
   source  = "terraform-aws-modules/eks/aws//modules/karpenter"
   version = "~> 20.24"
 
-  cluster_name          = module.eks.cluster_name
-  enable_v1_permissions = true
-  enable_pod_identity   = true
+  cluster_name                    = module.eks.cluster_name
+  enable_v1_permissions           = true
+  enable_pod_identity             = true
   create_pod_identity_association = true
   node_iam_role_additional_policies = {
     AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
@@ -103,10 +103,10 @@ resource "helm_release" "karpenter" {
   version             = "1.6.1"
   wait                = true
   values = [yamlencode({
-    settings = { clusterName = module.eks.cluster_name, interruptionQueue = module.karpenter.queue_name }
+    settings       = { clusterName = module.eks.cluster_name, interruptionQueue = module.karpenter.queue_name }
     serviceAccount = { name = module.karpenter.service_account }
-    controller = { resources = { requests = { cpu = "500m", memory = "512Mi" } } }
-    nodeSelector = { role = "system" }
+    controller     = { resources = { requests = { cpu = "500m", memory = "512Mi" } } }
+    nodeSelector   = { role = "system" }
   })]
   depends_on = [module.eks]
 }
@@ -118,8 +118,8 @@ resource "kubectl_manifest" "gpu_nodeclass" {
     kind       = "EC2NodeClass"
     metadata   = { name = "gpu-a10g" }
     spec = {
-      amiSelectorTerms = [{ alias = "al2023@latest" }]   # AL2023 NVIDIA variant is picked automatically for GPU instance types
-      role             = module.karpenter.node_iam_role_name
+      amiSelectorTerms           = [{ alias = "al2023@latest" }] # AL2023 NVIDIA variant is picked automatically for GPU instance types
+      role                       = module.karpenter.node_iam_role_name
       subnetSelectorTerms        = [{ tags = { "karpenter.sh/discovery" = module.eks.cluster_name } }]
       securityGroupSelectorTerms = [{ tags = { "karpenter.sh/discovery" = module.eks.cluster_name } }]
       blockDeviceMappings = [{
@@ -127,7 +127,7 @@ resource "kubectl_manifest" "gpu_nodeclass" {
         ebs        = { volumeSize = "200Gi", volumeType = "gp3", iops = 6000, throughput = 250, deleteOnTermination = true }
       }]
       metadataOptions = { httpTokens = "required" }
-      tags = local.tags
+      tags            = local.tags
     }
   })
   depends_on = [helm_release.karpenter]
@@ -174,8 +174,8 @@ resource "helm_release" "nvidia_device_plugin" {
   chart            = "nvidia-device-plugin"
   version          = "0.17.3"
   values = [yamlencode({
-    gfd = { enabled = true }     # GPU feature discovery labels nodes with product/memory
-    tolerations = [{ key = "nvidia.com/gpu", operator = "Exists", effect = "NoSchedule" }]
+    gfd          = { enabled = true } # GPU feature discovery labels nodes with product/memory
+    tolerations  = [{ key = "nvidia.com/gpu", operator = "Exists", effect = "NoSchedule" }]
     nodeSelector = { "nvidia.com/gpu.present" = "true" }
     # config.name = "time-slicing"  # uncomment with charts/experiments/time-slicing-configmap.yaml applied
   })]
@@ -193,7 +193,7 @@ resource "helm_release" "dcgm_exporter" {
     tolerations    = [{ key = "nvidia.com/gpu", operator = "Exists", effect = "NoSchedule" }]
     nodeSelector   = { "nvidia.com/gpu.present" = "true" }
     serviceMonitor = { enabled = true, interval = "5s", additionalLabels = { release = "kube-prometheus-stack" } }
-    arguments      = ["-f", "/etc/dcgm-exporter/dcp-metrics-included.csv"]   # includes profiling metrics (tensor core activity)
+    arguments      = ["-f", "/etc/dcgm-exporter/dcp-metrics-included.csv"] # includes profiling metrics (tensor core activity)
   })]
   depends_on = [helm_release.kube_prometheus_stack]
 }
@@ -208,12 +208,12 @@ resource "helm_release" "kube_prometheus_stack" {
   timeout          = 600
   values = [yamlencode({
     prometheus = { prometheusSpec = {
-      scrapeInterval = "5s"
-      retention      = "3d"
+      scrapeInterval                          = "5s"
+      retention                               = "3d"
       serviceMonitorSelectorNilUsesHelmValues = false
       podMonitorSelectorNilUsesHelmValues     = false
-      nodeSelector = { role = "system" }
-      storageSpec  = { volumeClaimTemplate = { spec = { storageClassName = "gp3-model-cache", resources = { requests = { storage = "20Gi" } } } } }
+      nodeSelector                            = { role = "system" }
+      storageSpec                             = { volumeClaimTemplate = { spec = { storageClassName = "gp3-model-cache", resources = { requests = { storage = "20Gi" } } } } }
     } }
     grafana = {
       adminPassword = "admin"
@@ -240,10 +240,10 @@ resource "kubernetes_storage_class" "gp3" {
   metadata { name = "gp3-model-cache" }
   storage_provisioner    = "ebs.csi.aws.com"
   reclaim_policy         = "Delete"
-  volume_binding_mode    = "WaitForFirstConsumer"   # the PVC is created in the AZ where the GPU node lands
+  volume_binding_mode    = "WaitForFirstConsumer" # the PVC is created in the AZ where the GPU node lands
   allow_volume_expansion = true
-  parameters = { type = "gp3", iops = "6000", throughput = "250", encrypted = "true" }
-  depends_on = [module.eks]
+  parameters             = { type = "gp3", iops = "6000", throughput = "250", encrypted = "true" }
+  depends_on             = [module.eks]
 }
 
 # Grafana dashboards from stacks/observability, picked up by the sidecar.
@@ -254,7 +254,7 @@ resource "kubernetes_config_map" "dashboards" {
     labels    = { grafana_dashboard = "1" }
   }
   data = { for f in fileset("${path.module}/../../../stacks/observability/grafana/dashboards", "*.json") :
-    f => file("${path.module}/../../../stacks/observability/grafana/dashboards/${f}") }
+  f => file("${path.module}/../../../stacks/observability/grafana/dashboards/${f}") }
   depends_on = [helm_release.kube_prometheus_stack]
 }
 
@@ -284,7 +284,10 @@ resource "aws_iam_role_policy_attachment" "gateway_bedrock" {
 data "aws_iam_policy_document" "pod_identity" {
   statement {
     actions = ["sts:AssumeRole", "sts:TagSession"]
-    principals { type = "Service", identifiers = ["pods.eks.amazonaws.com"] }
+    principals {
+      type        = "Service"
+      identifiers = ["pods.eks.amazonaws.com"]
+    }
   }
 }
 resource "aws_eks_pod_identity_association" "engine" {
@@ -302,6 +305,6 @@ resource "aws_eks_pod_identity_association" "gateway" {
 }
 
 output "cluster_name" { value = module.eks.cluster_name }
-output "bucket"       { value = module.bucket.bucket }
-output "kubeconfig"   { value = "aws eks update-kubeconfig --name ${module.eks.cluster_name} --region ${var.region}" }
-output "grafana"      { value = "kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80" }
+output "bucket" { value = module.bucket.bucket }
+output "kubeconfig" { value = "aws eks update-kubeconfig --name ${module.eks.cluster_name} --region ${var.region}" }
+output "grafana" { value = "kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80" }
