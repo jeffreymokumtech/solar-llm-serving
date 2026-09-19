@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.name }}
+  labels: {{- include "llm.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector: {{- include "llm.selector" . | nindent 4 }}
+  ports:
+    - {name: http, port: {{ .Values.port }}, targetPort: http}
+    {{- if ne (int .Values.metricsPort) (int .Values.port) }}
+    - {name: metrics, port: {{ .Values.metricsPort }}, targetPort: metrics}
+    {{- end }}

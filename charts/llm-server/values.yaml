@@ -1,0 +1,74 @@
+# Defaults describe vLLM FP16. Per-stack overrides live in values-*.yaml.
+name: vllm-fp16
+engine: vllm                     # vllm | sglang | triton   (selects port/health/metrics conventions)
+image:
+  repository: vllm/vllm-openai
+  tag: v0.11.0
+  pullPolicy: IfNotPresent
+model:
+  id: Qwen/Qwen3-8B
+  servedName: Qwen/Qwen3-8B
+args:                            # appended to the engine entrypoint
+  - --model=Qwen/Qwen3-8B
+  - --served-model-name=Qwen/Qwen3-8B
+  - --dtype=auto
+  - --max-model-len=8192
+  - --max-num-seqs=64
+  - --gpu-memory-utilization=0.90
+  - --enable-prefix-caching
+  - --enable-chunked-prefill
+  - --guided-decoding-backend=xgrammar
+  - --disable-log-requests
+command: []                      # override the image entrypoint (SGLang needs python3 -m sglang.launch_server ...)
+env:
+  HF_HOME: /cache/hf
+  VLLM_LOGGING_LEVEL: INFO
+envFromSecret: hf-token          # optional Secret with HF_TOKEN (create with kubectl create secret generic hf-token --from-literal=HF_TOKEN=...)
+port: 8000
+metricsPath: /metrics
+metricsPort: 8000
+healthPath: /health
+replicas: 1
+gpus: 1
+resources:
+  requests: {cpu: "3", memory: 12Gi}
+  limits: {memory: 14Gi}
+shmSize: 8Gi
+nodeSelector:
+  karpenter.sh/nodepool: gpu-a10g
+tolerations:
+  - {key: nvidia.com/gpu, operator: Exists, effect: NoSchedule}
+cache:                           # persistent model cache: one PVC per replica, pre-seeded from S3 by the init container
+  enabled: true
+  storageClass: gp3-model-cache
+  size: 200Gi
+  s3:
+    enabled: false
+    bucket: ""                   # e.g. solar-llm-models-123456789012
+    prefix: hf                   # bucket/hf/hub/models--Qwen--Qwen3-8B/...
+    image: public.ecr.aws/aws-cli/aws-cli:2.22.35
+serviceAccount:
+  create: true
+  annotations: {}                # IRSA / Pod Identity role for S3 read
+probes:
+  startupFailureThreshold: 120   # x 10s = 20 min for cold model load
+service:
+  type: ClusterIP
+serviceMonitor:
+  enabled: true
+  interval: 5s
+pdb:
+  enabled: true
+  minAvailable: 1
+keda:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  pollingInterval: 5
+  cooldownPeriod: 300
+  prometheusServer: http://kube-prometheus-stack-prometheus.monitoring.svc:9090
+  query: 'sum(vllm:num_requests_waiting{service="vllm-fp16"})'
+  threshold: "8"                 # scale out when more than 8 requests are queued per replica
+networkPolicy:
+  enabled: true
+  allowFromNamespaces: [gateway, monitoring, solarbench]

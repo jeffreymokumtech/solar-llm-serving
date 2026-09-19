@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+.env
+.env.*
+!.env.example
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+kubeconfig*
+results/**/raw.jsonl
+docs/plots/*.png
+!docs/plots/.gitkeep
+
+# private study material, not part of the public repo
+handbook/

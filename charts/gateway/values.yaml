@@ -1,0 +1,15 @@
+image: {repository: ghcr.io/jeffreymokumtech/solar-llm-gateway, tag: latest, pullPolicy: Always}
+replicas: 2
+upstreams: "awq=http://vllm-awq.llm.svc:8000=Qwen/Qwen3-8B=http://vllm-awq.llm.svc:8000/metrics,fp16=http://vllm-fp16.llm.svc:8000=Qwen/Qwen3-8B=http://vllm-fp16.llm.svc:8000/metrics"
+routes: "ticket_triage=awq,fault_log_extraction=awq,agent_tool_turn=awq,daily_report_summary=fp16"
+default: awq
+apiKeysSecret: gateway-api-keys        # Secret with key GATEWAY_API_KEYS="nv-demo:600,nv-bench:100000"
+bedrock:
+  modelId: ""                          # e.g. qwen.qwen3-next-80b-a3b ; empty disables the fallback
+  region: eu-west-1
+serviceAccount:
+  annotations: {}                      # IRSA role with bedrock:InvokeModelWithResponseStream when the fallback is on
+otelEndpoint: ""                       # e.g. http://otel-collector.monitoring.svc:4317
+resources:
+  requests: {cpu: 250m, memory: 256Mi}
+  limits: {memory: 512Mi}

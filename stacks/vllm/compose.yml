@@ -1,0 +1,82 @@
+# vLLM variants. Profiles are mutually exclusive on one GPU; start one.
+#   docker compose -f stacks/vllm/compose.yml --profile awq up -d
+x-vllm: &vllm
+  image: ${VLLM_IMAGE}
+  restart: unless-stopped
+  ipc: host                       # PyTorch shared memory for the tokenizer/engine processes
+  ports: ["8000:8000"]
+  volumes: ["${HF_CACHE}:/root/.cache/huggingface"]
+  environment:
+    HF_TOKEN: ${HF_TOKEN:-}
+    VLLM_LOGGING_LEVEL: INFO
+  deploy:
+    resources:
+      reservations:
+        devices: [{driver: nvidia, count: all, capabilities: [gpu]}]
+  healthcheck:
+    test: ["CMD", "python3", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+    interval: 15s
+    timeout: 5s
+    retries: 40
+    start_period: 300s
+
+services:
+  vllm-fp16:
+    <<: *vllm
+    profiles: [fp16]
+    command: >
+      --model ${MODEL_FP16} --served-model-name ${MODEL_FP16}
+      --dtype auto --max-model-len 8192 --max-num-seqs ${MAX_NUM_SEQS:-64}
+      --gpu-memory-utilization ${GPU_MEM_UTIL:-0.90}
+      --enable-prefix-caching --enable-chunked-prefill
+      --guided-decoding-backend xgrammar
+      --disable-log-requests
+
+  vllm-fp16-noprefix:            # control run for the prefix-caching experiment
+    <<: *vllm
+    profiles: [fp16-noprefix]
+    command: >
+      --model ${MODEL_FP16} --served-model-name ${MODEL_FP16}
+      --dtype auto --max-model-len 8192 --max-num-seqs ${MAX_NUM_SEQS:-64}
+      --gpu-memory-utilization ${GPU_MEM_UTIL:-0.90}
+      --no-enable-prefix-caching --enable-chunked-prefill
+      --guided-decoding-backend xgrammar
+      --disable-log-requests
+
+  vllm-awq:
+    <<: *vllm
+    profiles: [awq]
+    command: >
+      --model ${MODEL_AWQ} --served-model-name ${MODEL_FP16}
+      --quantization awq_marlin --dtype half
+      --max-model-len 8192 --max-num-seqs ${MAX_NUM_SEQS:-128}
+      --gpu-memory-utilization ${GPU_MEM_UTIL:-0.90}
+      --enable-prefix-caching --enable-chunked-prefill
+      --guided-decoding-backend xgrammar
+      --disable-log-requests
+
+  vllm-awq-spec:                 # n-gram (prompt-lookup) speculative decoding: no draft model, helps decode-heavy tasks
+    <<: *vllm
+    profiles: [awq-spec]
+    command: >
+      --model ${MODEL_AWQ} --served-model-name ${MODEL_FP16}
+      --quantization awq_marlin --dtype half
+      --max-model-len 8192 --max-num-seqs ${MAX_NUM_SEQS:-128}
+      --gpu-memory-utilization ${GPU_MEM_UTIL:-0.90}
+      --enable-prefix-caching --enable-chunked-prefill
+      --speculative-config '{"method": "ngram", "num_speculative_tokens": 4, "prompt_lookup_max": 4, "prompt_lookup_min": 2}'
+      --guided-decoding-backend xgrammar
+      --disable-log-requests
+
+  vllm-tp4:                      # g5.12xlarge only: 4 x A10G, tensor parallel
+    <<: *vllm
+    profiles: [tp4]
+    shm_size: 16g
+    command: >
+      --model ${MODEL_FP16} --served-model-name ${MODEL_FP16}
+      --tensor-parallel-size 4
+      --dtype auto --max-model-len 8192 --max-num-seqs ${MAX_NUM_SEQS:-256}
+      --gpu-memory-utilization ${GPU_MEM_UTIL:-0.90}
+      --enable-prefix-caching --enable-chunked-prefill
+      --guided-decoding-backend xgrammar
+      --disable-log-requests

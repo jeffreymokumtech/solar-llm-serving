@@ -1,0 +1,36 @@
+# SGLang: same model, same port, RadixAttention prefix cache on by default.
+#   docker compose -f stacks/sglang/compose.yml --profile awq up -d
+x-sgl: &sgl
+  image: ${SGLANG_IMAGE}
+  restart: unless-stopped
+  ipc: host
+  ports: ["8000:8000"]
+  volumes: ["${HF_CACHE}:/root/.cache/huggingface"]
+  environment: {HF_TOKEN: "${HF_TOKEN:-}"}
+  deploy: {resources: {reservations: {devices: [{driver: nvidia, count: all, capabilities: [gpu]}]}}}
+  healthcheck:
+    test: ["CMD", "python3", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+    interval: 15s
+    timeout: 5s
+    retries: 40
+    start_period: 300s
+
+services:
+  sglang-fp16:
+    <<: *sgl
+    profiles: [fp16]
+    command: >
+      python3 -m sglang.launch_server --model-path ${MODEL_FP16} --served-model-name ${MODEL_FP16}
+      --host 0.0.0.0 --port 8000 --context-length 8192 --max-running-requests ${MAX_NUM_SEQS:-64}
+      --mem-fraction-static ${GPU_MEM_UTIL:-0.88} --enable-metrics --grammar-backend xgrammar
+      --reasoning-parser qwen3
+
+  sglang-awq:
+    <<: *sgl
+    profiles: [awq]
+    command: >
+      python3 -m sglang.launch_server --model-path ${MODEL_AWQ} --served-model-name ${MODEL_FP16}
+      --quantization awq_marlin --dtype half
+      --host 0.0.0.0 --port 8000 --context-length 8192 --max-running-requests ${MAX_NUM_SEQS:-128}
+      --mem-fraction-static ${GPU_MEM_UTIL:-0.88} --enable-metrics --grammar-backend xgrammar
+      --reasoning-parser qwen3

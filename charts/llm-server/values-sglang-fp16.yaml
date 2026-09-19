@@ -1,0 +1,18 @@
+name: sglang-fp16
+engine: sglang
+image: {repository: lmsysorg/sglang, tag: v0.5.3-cu126}
+command: [python3, -m, sglang.launch_server]
+args:
+  - --model-path=Qwen/Qwen3-8B
+  - --served-model-name=Qwen/Qwen3-8B
+  - --host=0.0.0.0
+  - --port=8000
+  - --context-length=8192
+  - --max-running-requests=64
+  - --mem-fraction-static=0.88
+  - --enable-metrics
+  - --grammar-backend=xgrammar
+  - --reasoning-parser=qwen3
+healthPath: /health
+keda:
+  query: 'sum(sglang:num_queue_reqs{service="sglang-fp16"})'

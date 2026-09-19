@@ -1,0 +1,37 @@
+# Triton + TensorRT-LLM backend, exposed through Triton's OpenAI-compatible frontend on :8000
+# (so solarbench and the gateway need no Triton-specific client). Triton's own metrics are on :8002.
+#   docker compose -f stacks/trtllm/compose.yml --profile int4 up -d
+x-triton: &triton
+  image: ${TRITON_TRTLLM_IMAGE}
+  restart: unless-stopped
+  ipc: host
+  shm_size: 4g
+  ports: ["8000:9000", "8002:8002"]
+  volumes:
+    - "${ENGINES:-/data/engines}:/engines:ro"
+    - "${TRITON_REPO:-/data/triton}:/repo:ro"
+    - "${HF_CACHE}:/hf:ro"
+  deploy: {resources: {reservations: {devices: [{driver: nvidia, count: all, capabilities: [gpu]}]}}}
+  healthcheck:
+    test: ["CMD", "curl", "-sf", "http://127.0.0.1:9000/health/ready"]
+    interval: 15s
+    timeout: 5s
+    retries: 40
+    start_period: 300s
+
+services:
+  triton-fp16:
+    <<: *triton
+    profiles: [fp16]
+    command: >
+      bash -lc "python3 /opt/tritonserver/python/openai/openai_frontend/main.py
+      --model-repository /repo/fp16 --tokenizer $(ls -d /hf/hub/models--Qwen--Qwen3-8B/snapshots/* | head -1)
+      --backend tensorrtllm --openai-port 9000 --enable-kserve-frontends --kserve-http-port 8001 --kserve-grpc-port 8003"
+
+  triton-int4:
+    <<: *triton
+    profiles: [int4]
+    command: >
+      bash -lc "python3 /opt/tritonserver/python/openai/openai_frontend/main.py
+      --model-repository /repo/int4 --tokenizer $(ls -d /hf/hub/models--Qwen--Qwen3-8B/snapshots/* | head -1)
+      --backend tensorrtllm --openai-port 9000 --enable-kserve-frontends --kserve-http-port 8001 --kserve-grpc-port 8003"

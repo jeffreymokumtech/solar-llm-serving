@@ -1,0 +1,19 @@
+# Experiment: GPU time-slicing. Lets two pods request nvidia.com/gpu on one A10G (no isolation, shared memory).
+# Applied to the device plugin via `--set config.name=time-slicing` on the nvidia-device-plugin release.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: time-slicing
+  namespace: nvidia-device-plugin
+data:
+  any: |-
+    version: v1
+    flags:
+      migStrategy: none
+    sharing:
+      timeSlicing:
+        renameByDefault: false
+        failRequestsGreaterThanOne: false
+        resources:
+          - name: nvidia.com/gpu
+            replicas: 2

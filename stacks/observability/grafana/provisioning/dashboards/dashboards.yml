@@ -1,0 +1,6 @@
+apiVersion: 1
+providers:
+  - name: solar-llm
+    folder: solar-llm-serving
+    type: file
+    options: {path: /var/lib/grafana/dashboards}

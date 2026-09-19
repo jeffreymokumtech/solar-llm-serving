@@ -1,0 +1,19 @@
+name: triton-int4
+engine: triton
+image: {repository: nvcr.io/nvidia/tritonserver, tag: 25.09-trtllm-python-py3}
+command: [bash, -lc]
+args:
+  - >-
+    python3 /opt/tritonserver/python/openai/openai_frontend/main.py --model-repository /cache/triton/int4
+    --tokenizer $(ls -d /cache/hf/hub/models--Qwen--Qwen3-8B/snapshots/* | head -1)
+    --backend tensorrtllm --openai-port 8000 --enable-kserve-frontends --kserve-http-port 8001 --kserve-grpc-port 8003
+healthPath: /health/ready
+metricsPort: 8002
+metricsPath: /metrics
+shmSize: 4Gi
+cache:
+  s3:
+    enabled: true
+    prefix: ""                   # bucket holds hf/, engines/ and triton/ side by side
+keda:
+  query: 'sum(nv_inference_pending_request_count{service="triton-int4"})'

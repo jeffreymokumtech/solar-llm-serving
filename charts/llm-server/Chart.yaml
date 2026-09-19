@@ -1,0 +1,6 @@
+apiVersion: v2
+name: llm-server
+description: One OpenAI-compatible LLM engine (vLLM, SGLang or Triton/TensorRT-LLM) on GPU nodes, with metrics, cache PVC, KEDA autoscaling and PDB.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

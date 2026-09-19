@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gateway
+  annotations: {{- toYaml .Values.serviceAccount.annotations | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  labels: {app: gateway}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector: {matchLabels: {app: gateway}}
+  template:
+    metadata:
+      labels: {app: gateway}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8080", prometheus.io/path: /metrics}
+    spec:
+      serviceAccountName: gateway
+      securityContext: {runAsNonRoot: true, runAsUser: 10001}
+      containers:
+        - name: gateway
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports: [{name: http, containerPort: 8080}]
+          env:
+            - {name: GATEWAY_UPSTREAMS, value: {{ .Values.upstreams | quote }}}
+            - {name: GATEWAY_ROUTES, value: {{ .Values.routes | quote }}}
+            - {name: GATEWAY_DEFAULT, value: {{ .Values.default | quote }}}
+            - {name: GATEWAY_BEDROCK_MODEL_ID, value: {{ .Values.bedrock.modelId | quote }}}
+            - {name: AWS_REGION, value: {{ .Values.bedrock.region | quote }}}
+            - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: {{ .Values.otelEndpoint | quote }}}
+          envFrom:
+            - secretRef: {name: {{ .Values.apiKeysSecret }}, optional: true}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          readinessProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 20}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  labels: {app: gateway}
+spec:
+  selector: {app: gateway}
+  ports: [{name: http, port: 8080, targetPort: http}]
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: gateway
+  labels: {release: kube-prometheus-stack, app: gateway}
+spec:
+  selector: {matchLabels: {app: gateway}}
+  endpoints: [{port: http, path: /metrics, interval: 5s}]

@@ -1,0 +1,23 @@
+# DCGM exporter (GPU metrics on :9400), Prometheus (:9090), Grafana (:3000, admin/admin).
+# Prometheus scrapes whichever engine is up on host port 8000 plus the gateway on 8080.
+services:
+  dcgm-exporter:
+    image: ${DCGM_EXPORTER_IMAGE}
+    restart: unless-stopped
+    cap_add: [SYS_ADMIN]
+    ports: ["9400:9400"]
+    deploy: {resources: {reservations: {devices: [{driver: nvidia, count: all, capabilities: [gpu]}]}}}
+  prometheus:
+    image: ${PROMETHEUS_IMAGE}
+    restart: unless-stopped
+    ports: ["9090:9090"]
+    volumes: ["./prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+  grafana:
+    image: ${GRAFANA_IMAGE}
+    restart: unless-stopped
+    ports: ["3000:3000"]
+    environment: {GF_SECURITY_ADMIN_PASSWORD: admin, GF_AUTH_ANONYMOUS_ENABLED: "true"}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro

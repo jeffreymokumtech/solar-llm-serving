@@ -1,0 +1,22 @@
+# g5.12xlarge control for the TP=4 run: four independent TP=1 replicas, one GPU each,
+# behind the gateway (which round-robins the "default" upstream list).
+#   docker compose -f stacks/vllm/replicas_tp1.yml up -d
+x-rep: &rep
+  image: ${VLLM_IMAGE}
+  ipc: host
+  volumes: ["${HF_CACHE}:/root/.cache/huggingface"]
+  command: >
+    --model ${MODEL_FP16} --served-model-name ${MODEL_FP16} --dtype auto --max-model-len 8192
+    --max-num-seqs 64 --gpu-memory-utilization 0.90 --enable-prefix-caching --guided-decoding-backend xgrammar --disable-log-requests
+
+services:
+  rep0: {<<: *rep, ports: ["8000:8000"], environment: {CUDA_VISIBLE_DEVICES: "0"}}
+  rep1: {<<: *rep, ports: ["8001:8000"], environment: {CUDA_VISIBLE_DEVICES: "1"}}
+  rep2: {<<: *rep, ports: ["8002:8000"], environment: {CUDA_VISIBLE_DEVICES: "2"}}
+  rep3: {<<: *rep, ports: ["8003:8000"], environment: {CUDA_VISIBLE_DEVICES: "3"}}
+  gateway:
+    build: {context: ../.., dockerfile: gateway/Dockerfile}
+    ports: ["8080:8080"]
+    environment:
+      GATEWAY_UPSTREAMS: rep0=http://rep0:8000=${MODEL_FP16}=http://rep0:8000/metrics,rep1=http://rep1:8000=${MODEL_FP16}=http://rep1:8000/metrics,rep2=http://rep2:8000=${MODEL_FP16}=http://rep2:8000/metrics,rep3=http://rep3:8000=${MODEL_FP16}=http://rep3:8000/metrics
+      GATEWAY_DEFAULT: rep0

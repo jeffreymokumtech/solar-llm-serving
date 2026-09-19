@@ -1,0 +1,51 @@
+name: ci
+on:
+  push: {branches: [main]}
+  pull_request:
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e ".[dev]"
+      - run: ruff check . && ruff format --check .
+      - run: pytest -q
+      - name: dataset and report are reproducible from the committed inputs
+        run: |
+          solarbench gen --check
+          solarbench report --check
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with: {version: v3.16.4}
+      - name: kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz -C /usr/local/bin kubeconform
+      - run: helm lint charts/llm-server charts/gateway
+      - name: render every values file and validate the manifests
+        run: |
+          set -e
+          for v in charts/llm-server/values-*.yaml; do
+            helm template t charts/llm-server -f "$v" | kubeconform -strict -ignore-missing-schemas -summary
+          done
+          helm template g charts/gateway | kubeconform -strict -ignore-missing-schemas -summary
+          kubeconform -strict -ignore-missing-schemas -summary charts/experiments/*.yaml
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: {terraform_version: "1.9.8"}
+      - run: terraform fmt -check -recursive infra/terraform
+      - name: validate each root module (no backend, no credentials)
+        run: |
+          set -e
+          for d in infra/terraform/budget infra/terraform/single-gpu infra/terraform/eks; do
+            (cd "$d" && terraform init -backend=false -input=false >/dev/null && terraform validate)
+          done
+      - uses: terraform-linters/setup-tflint@v4
+      - run: tflint --recursive --minimum-failure-severity=error

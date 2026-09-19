@@ -1,0 +1,35 @@
+# In-cluster load generator: runs solarbench against a Service and writes results to a PVC (or S3 via aws-cli after).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: solarbench-load
+  namespace: solarbench
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: solarbench
+          image: ghcr.io/jeffreymokumtech/solar-llm-gateway:latest   # same image, has the solarbench CLI
+          command: [solarbench, run]
+          args:
+            - --stack=$(STACK)
+            - --base-url=$(BASE_URL)
+            - --model=Qwen/Qwen3-8B
+            - --mode=open
+            - --rps=$(RPS)
+            - --duration=$(DURATION)
+            - --instance-type=g5.xlarge
+            - --metrics-url=$(METRICS_URL)
+            - --out=/results
+          env:
+            - {name: STACK, value: vllm-awq}
+            - {name: BASE_URL, value: http://vllm-awq.llm.svc:8000}
+            - {name: METRICS_URL, value: http://vllm-awq.llm.svc:8000/metrics}
+            - {name: RPS, value: "6"}
+            - {name: DURATION, value: "300"}
+          volumeMounts: [{name: results, mountPath: /results}]
+      volumes:
+        - name: results
+          persistentVolumeClaim: {claimName: solarbench-results}

@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.name }}
+  labels: {{- include "llm.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}   # a new GPU pod must be Ready before the old one goes
+  selector:
+    matchLabels: {{- include "llm.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "llm.labels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.metricsPort | quote }}
+        prometheus.io/path: {{ .Values.metricsPath }}
+    spec:
+      serviceAccountName: {{ .Values.name }}
+      terminationGracePeriodSeconds: 60
+      nodeSelector: {{- toYaml .Values.nodeSelector | nindent 8 }}
+      tolerations: {{- toYaml .Values.tolerations | nindent 8 }}
+      securityContext:
+        fsGroup: 1000
+      volumes:
+        - name: shm
+          emptyDir: {medium: Memory, sizeLimit: {{ .Values.shmSize }}}
+        - name: cache
+          {{- if .Values.cache.enabled }}
+          persistentVolumeClaim: {claimName: {{ .Values.name }}-cache}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- if .Values.cache.s3.enabled }}
+      initContainers:
+        - name: warm-cache        # copies weights/engines from S3 once; later restarts find them on the PVC
+          image: {{ .Values.cache.s3.image }}
+          command: [sh, -c]
+          args:
+            - |
+              set -e
+              aws s3 sync --no-progress "s3://{{ .Values.cache.s3.bucket }}/{{ .Values.cache.s3.prefix }}" /cache/{{ .Values.cache.s3.prefix }} --size-only
+              echo "cache warm: $(du -sh /cache | cut -f1)"
+          volumeMounts: [{name: cache, mountPath: /cache}]
+      {{- end }}
+      containers:
+        - name: engine
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.command }}
+          command: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          args: {{- toYaml .Values.args | nindent 12 }}
+          env:
+            {{- range $k, $v := .Values.env }}
+            - {name: {{ $k }}, value: {{ $v | quote }}}
+            {{- end }}
+          {{- if .Values.envFromSecret }}
+          envFrom:
+            - secretRef: {name: {{ .Values.envFromSecret }}, optional: true}
+          {{- end }}
+          ports:
+            - {name: http, containerPort: {{ .Values.port }}}
+            {{- if ne (int .Values.metricsPort) (int .Values.port) }}
+            - {name: metrics, containerPort: {{ .Values.metricsPort }}}
+            {{- end }}
+          resources:
+            requests:
+              cpu: {{ .Values.resources.requests.cpu | quote }}
+              memory: {{ .Values.resources.requests.memory }}
+              nvidia.com/gpu: {{ .Values.gpus }}
+            limits:
+              memory: {{ .Values.resources.limits.memory }}
+              nvidia.com/gpu: {{ .Values.gpus }}
+          volumeMounts:
+            - {name: shm, mountPath: /dev/shm}
+            - {name: cache, mountPath: /cache}
+          startupProbe:
+            httpGet: {path: {{ .Values.healthPath }}, port: http}
+            periodSeconds: 10
+            failureThreshold: {{ .Values.probes.startupFailureThreshold }}
+          readinessProbe:
+            httpGet: {path: {{ .Values.healthPath }}, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: {{ .Values.healthPath }}, port: http}
+            periodSeconds: 30
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec: {command: [sh, -c, "sleep 10"]}   # let the Service stop routing before the engine exits

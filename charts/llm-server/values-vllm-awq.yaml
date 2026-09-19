@@ -1,0 +1,17 @@
+name: vllm-awq
+model: {id: Qwen/Qwen3-8B-AWQ, servedName: Qwen/Qwen3-8B}
+args:
+  - --model=Qwen/Qwen3-8B-AWQ
+  - --served-model-name=Qwen/Qwen3-8B
+  - --quantization=awq_marlin
+  - --dtype=half
+  - --max-model-len=8192
+  - --max-num-seqs=128
+  - --gpu-memory-utilization=0.90
+  - --enable-prefix-caching
+  - --enable-chunked-prefill
+  - --guided-decoding-backend=xgrammar
+  - --disable-log-requests
+keda:
+  enabled: true
+  query: 'sum(vllm:num_requests_waiting{service="vllm-awq"})'

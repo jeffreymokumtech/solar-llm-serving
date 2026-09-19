@@ -1,0 +1,16 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    release: kube-prometheus-stack
+    {{- include "llm.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "llm.selector" . | nindent 6 }}
+  endpoints:
+    - port: {{ if ne (int .Values.metricsPort) (int .Values.port) }}metrics{{ else }}http{{ end }}
+      path: {{ .Values.metricsPath }}
+      interval: {{ .Values.serviceMonitor.interval }}
+{{- end }}
